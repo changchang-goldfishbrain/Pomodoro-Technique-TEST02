@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    
+    <!-- PWA & iOS Standalone Settings -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="DuoFocus">
+    <meta name="theme-color" content="#FFFFFF">
+    <meta name="description" content="A minimalist Pomodoro timer">
+
+    <title>DuoFocus Timer</title>
+    
+    <!-- Icons (Ensure these files exist in the same directory) -->
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="pwa-192x192.png">
+
+    <!-- Embedded Manifest for Android PWA Support -->
+    <link rel="manifest" href='data:application/json;charset=utf-8,%7B%22name%22%3A%22DuoFocus%20Timer%22%2C%22short_name%22%3A%22DuoFocus%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23FFFFFF%22%2C%22theme_color%22%3A%22%23FFFFFF%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22pwa-192x192.png%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fpng%22%7D%2C%7B%22src%22%3A%22pwa-512x512.png%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D'>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        unfinished: '#4F9D9D', // Teal
+                        finished: '#FFFFFF',   // White
+                    },
+                    fontFamily: {
+                        sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    },
+                    screens: {
+                        'landscape': {'raw': '(orientation: landscape)'},
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- React & Babel -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Import Map for Modules -->
+    <script type="importmap">
+{
+  "imports": {
+    "@google/generative-ai": "https://esm.run/@google/generative-ai",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "vite": "https://aistudiocdn.com/vite@^7.2.6",
+    "vite-plugin-pwa": "https://aistudiocdn.com/vite-plugin-pwa@^1.2.0"
+  }
+}
+</script>
+
+    <style>
+        /* iOS Safe Area Support */
+        body {
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+            padding-left: env(safe-area-inset-left);
+            padding-right: env(safe-area-inset-right);
+            background-color: #FFFFFF;
+        }
+
+        /* Prevent Selection & Zooming */
+        * {
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        /* Disable Scroll */
+        html, body {
+            margin: 0;
+            height: 100%;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        /* Input specific overrides */
+        input {
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        /* Animations */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
+    </style>
+</head>
+<body>
+    <div id="root" class="h-full w-full"></div>
+
+    <script type="text/babel" data-type="module">
+        import { GoogleGenerativeAI } from "@google/generative-ai";
+
+        // --- ICONS ---
+        const Icons = {
+            Play: ({ className }) => (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}><path fillRule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653Z" clipRule="evenodd" /></svg>
+            ),
+            Pause: ({ className }) => (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}><path fillRule="evenodd" d="M6.75 5.25a.75.75 0 0 1 .75-.75H9a.75.75 0 0 1 .75.75v13.5a.75.75 0 0 1-.75.75H7.5a.75.75 0 0 1-.75-.75V5.25Zm7.5 0A.75.75 0 0 1 15 4.5h1.5a.75.75 0 0 1 .75.75v13.5a.75.75 0 0 1-.75.75H15a.75.75 0 0 1-.75-.75V5.25Z" clipRule="evenodd" /></svg>
+            ),
+            Reset: ({ className }) => (
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+            ),
+            Settings: ({ className }) => (
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M10.34 1.505a.75.75 0 0 1 .722 0l.44.254a2.25 2.25 0 0 0 2.25 0l.44-.254a.75.75 0 0 1 1.118.667v.44a2.25 2.25 0 0 0 2.25 2.25h.44a.75.75 0 0 1 .667 1.118l-.254.44a2.25 2.25 0 0 0 0 2.25l.254.44a.75.75 0 0 1-.667 1.118h-.44a2.25 2.25 0 0 0-2.25 2.25v.44a.75.75 0 0 1-1.118.667l-.44-.254a2.25 2.25 0 0 0-2.25 0l-.44.254a.75.75 0 0 1-1.118-.667v-.44a2.25 2.25 0 0 0-2.25-2.25h-.44a.75.75 0 0 1-.667-1.118l.254-.44a2.25 2.25 0 0 0 0-2.25l-.254-.44a.75.75 0 0 1 .667-1.118h.44a2.25 2.25 0 0 0 2.25-2.25v-.44a.75.75 0 0 1 .722-.667ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" /></svg>
+            ),
+            Sparkles: ({ className }) => (
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" /></svg>
+            ),
+            Close: ({ className }) => (
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+            )
+        };
+
+        // --- CLOCK COMPONENT ---
+        const AnalogClock = ({ remainingSeconds, className }) => {
+            const minutes = remainingSeconds / 60;
+            const angle = Math.min(359.9, minutes * 6);
+            const r = 48, cx = 50, cy = 50;
+            const endAngleRad = (angle - 90) * (Math.PI / 180);
+            const endX = cx + r * Math.cos(endAngleRad);
+            const endY = cy + r * Math.sin(endAngleRad);
+            const largeArcFlag = angle > 180 ? 1 : 0;
+            const wedgePath = minutes >= 60 ? `M 50 2 A 48 48 0 1 1 49.99 2 Z` : `M ${cx} ${cy} L 50 ${50 - r} A ${r} ${r} 0 ${largeArcFlag} 1 ${endX} ${endY} Z`;
+
+            const renderFaceContent = (color) => (
+                <g fill={color} stroke={color}>
+                    {Array.from({ length: 60 }).map((_, i) => {
+                        const isHour = i % 5 === 0;
+                        return <line key={`t-${i}`} x1="50" y1="4" x2="50" y2={isHour ? 7 : 5} stroke={color} strokeWidth={isHour ? 0.8 : 0.4} transform={`rotate(${i * 6} 50 50)`} />;
+                    })}
+                    {Array.from({ length: 12 }).map((_, i) => {
+                        const n = i + 1;
+                        const rad = (n * 30 - 90) * (Math.PI / 180);
+                        const nx = 50 + 38 * Math.cos(rad);
+                        const ny = 50 + 38 * Math.sin(rad);
+                        return <text key={`n-${n}`} x={nx} y={ny} textAnchor="middle" dominantBaseline="middle" fontSize="3.5" fontWeight="700" fill={color} stroke="none" className="font-sans">{n * 5}</text>;
+                    })}
+                </g>
+            );
+
+            return (
+                <svg viewBox="0 0 100 100" className={className}>
+                    <defs><mask id="wedgeMask"><rect x="0" y="0" width="100" height="100" fill="black" /><path d={wedgePath} fill="white" /></mask></defs>
+                    <circle cx="50" cy="50" r="49" fill="currentColor" className="text-finished" />
+                    <g className="text-unfinished">{renderFaceContent('currentColor')}</g>
+                    <path d={wedgePath} fill="currentColor" className="text-unfinished transition-[d] duration-300 ease-linear" />
+                    <g className="text-finished" mask="url(#wedgeMask)">{renderFaceContent('currentColor')}</g>
+                    <circle cx="50" cy="50" r="3.5" fill="currentColor" className="text-unfinished" />
+                </svg>
+            );
+        };
+
+        // --- GEMINI SERVICE ---
+        const getFocusTip = async (durationMinutes, apiKey) => {
+            if (!apiKey) return "請至設定輸入 API Key";
+            try {
+                const genAI = new GoogleGenerativeAI(apiKey);
+                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                const result = await model.generateContent(`Give me a single, short, impactful sentence of advice for staying focused during a ${durationMinutes}-minute deep work session. No quotes.`);
+                return result.response.text().trim();
+            } catch (e) { console.error(e); return "保持專注，活在當下。"; }
+        };
+
+        // --- MAIN APP ---
+        const App = () => {
+            const [timeSettings, setTimeSettings] = React.useState({ minutes: 25, seconds: 0 });
+            const [totalSeconds, setTotalSeconds] = React.useState(1500);
+            const [remainingSeconds, setRemainingSeconds] = React.useState(1500);
+            const [status, setStatus] = React.useState('IDLE');
+            const [showSettings, setShowSettings] = React.useState(false);
+            const [apiKey, setApiKey] = React.useState('');
+            const [focusTip, setFocusTip] = React.useState(null);
+            const [loadingTip, setLoadingTip] = React.useState(false);
+            const rafRef = React.useRef(null);
+            const endTimeRef = React.useRef(null);
+
+            React.useEffect(() => {
+                const k = localStorage.getItem('GEMINI_API_KEY'); if (k) setApiKey(k);
+                const t = localStorage.getItem('TIMER_SETTINGS'); 
+                if (t) { const p = JSON.parse(t); setTimeSettings(p); const s = p.minutes*60+p.seconds; setTotalSeconds(s); setRemainingSeconds(s); }
+            }, []);
+
+            const playBeep = () => {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator(); const g = ctx.createGain();
+                osc.connect(g); g.connect(ctx.destination);
+                osc.start(); g.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.5); osc.stop(ctx.currentTime + 0.5);
+            };
+
+            const tick = () => {
+                if (!endTimeRef.current) return;
+                const left = Math.ceil((endTimeRef.current - Date.now()) / 1000);
+                if (left <= 0) { setRemainingSeconds(0); setStatus('COMPLETED'); playBeep(); }
+                else { setRemainingSeconds(left); rafRef.current = requestAnimationFrame(tick); }
+            };
+
+            const startTimer = () => { setStatus('RUNNING'); endTimeRef.current = Date.now() + remainingSeconds * 1000; rafRef.current = requestAnimationFrame(tick); };
+            const pauseTimer = () => { setStatus('PAUSED'); cancelAnimationFrame(rafRef.current); endTimeRef.current = null; };
+            const resetTimer = () => { setStatus('IDLE'); cancelAnimationFrame(rafRef.current); endTimeRef.current = null; setRemainingSeconds(totalSeconds); };
+
+            const saveSettings = () => {
+                const total = timeSettings.minutes * 60 + timeSettings.seconds;
+                setTotalSeconds(total); setRemainingSeconds(total); setStatus('IDLE');
+                localStorage.setItem('TIMER_SETTINGS', JSON.stringify(timeSettings));
+                localStorage.setItem('GEMINI_API_KEY', apiKey);
+                setShowSettings(false);
+            };
+
+            const fetchTip = async () => { setLoadingTip(true); setFocusTip(await getFocusTip(timeSettings.minutes, apiKey)); setLoadingTip(false); };
+
+            return (
+                <div className="flex flex-col h-full items-center justify-between p-6 bg-finished text-unfinished font-sans landscape:flex-row landscape:justify-center landscape:gap-16">
+                    {/* Clock Area */}
+                    <div className="flex-1 flex items-center justify-center w-full max-h-[50vh] landscape:max-h-[80vh] landscape:flex-none landscape:aspect-square">
+                        <div className="relative w-full max-w-[340px] aspect-square bg-finished border-4 border-unfinished rounded-[22%] shadow-2xl p-6 flex items-center justify-center">
+                            <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-20 h-2 bg-unfinished rounded-full opacity-30"></div>
+                            <AnalogClock remainingSeconds={remainingSeconds} className="w-full h-full" />
+                            {status === 'COMPLETED' && <div className="absolute inset-0 flex items-center justify-center"><span className="bg-unfinished text-finished px-6 py-2 rounded-full text-xl font-bold animate-pulse">TIME'S UP</span></div>}
+                        </div>
+                    </div>
+
+                    {/* Controls Area */}
+                    <div className="flex flex-col items-center gap-8 pb-10 landscape:pb-0 landscape:items-start">
+                        <div className="flex items-center gap-8">
+                            {status === 'IDLE' && <button onClick={() => setShowSettings(true)} className="p-4 rounded-full border-2 border-unfinished hover:bg-unfinished hover:text-finished transition"><Icons.Settings className="w-6 h-6" /></button>}
+                            {status === 'RUNNING' 
+                                ? <button onClick={pauseTimer} className="p-6 rounded-full bg-unfinished text-finished shadow-lg active:scale-95 transition"><Icons.Pause className="w-8 h-8" /></button>
+                                : <button onClick={startTimer} disabled={status === 'COMPLETED'} className="p-6 rounded-full bg-unfinished text-finished shadow-lg active:scale-95 transition disabled:opacity-50"><Icons.Play className="w-8 h-8 translate-x-0.5" /></button>
+                            }
+                            <button onClick={resetTimer} className="p-4 rounded-full border-2 border-unfinished hover:bg-unfinished hover:text-finished transition"><Icons.Reset className="w-6 h-6" /></button>
+                        </div>
+
+                        <div className="h-12 flex items-center justify-center">
+                            {focusTip 
+                                ? <p className="text-sm font-bold text-center max-w-[250px] animate-fade-in leading-relaxed">{focusTip}</p>
+                                : <button onClick={fetchTip} disabled={loadingTip} className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest opacity-50 hover:opacity-100 transition"><Icons.Sparkles className={`w-4 h-4 ${loadingTip ? 'animate-spin' : ''}`} />{loadingTip ? 'Thinking...' : 'Inspire Me'}</button>
+                            }
+                        </div>
+                    </div>
+
+                    {/* Settings Modal */}
+                    {showSettings && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-finished/95 backdrop-blur-sm p-6 animate-fade-in">
+                            <div className="w-full max-w-sm flex flex-col gap-6">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-2xl font-bold uppercase tracking-widest">Setup</h2>
+                                    <button onClick={() => setShowSettings(false)}><Icons.Close className="w-8 h-8 opacity-70" /></button>
+                                </div>
+                                <div className="flex items-center justify-center gap-4 font-mono">
+                                    <div className="text-center"><input type="number" value={timeSettings.minutes} onChange={e=>setTimeSettings({...timeSettings, minutes:+e.target.value})} className="w-20 text-5xl text-center bg-transparent border-b-2 border-unfinished outline-none" /><div className="text-xs font-bold mt-2">MIN</div></div>
+                                    <div className="text-4xl pb-6">:</div>
+                                    <div className="text-center"><input type="number" value={timeSettings.seconds} onChange={e=>setTimeSettings({...timeSettings, seconds:+e.target.value})} className="w-20 text-5xl text-center bg-transparent border-b-2 border-unfinished outline-none" /><div className="text-xs font-bold mt-2">SEC</div></div>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold uppercase opacity-50 mb-2 block">Gemini API Key</label>
+                                    <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="Paste API Key here" className="w-full p-3 bg-transparent border border-unfinished rounded-lg outline-none focus:ring-1 focus:ring-unfinished" />
+                                </div>
+                                <button onClick={saveSettings} className="w-full py-4 bg-unfinished text-finished font-bold uppercase tracking-widest rounded-xl shadow-lg active:scale-95 transition">Ready</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
